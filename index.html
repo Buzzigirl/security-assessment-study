@@ -207,9 +207,16 @@
     function renderGeneralSession(app){
       const s=state.generalSession,q=QUESTION_MAP[s.ids[s.index]];app.append(renderQuestion(q,s,{mode:"study",position:s.index+1,total:s.ids.length,graded:s.graded[q.id]}));
       const actions=el("div","question-actions");actions.append(makeButton("이전","",()=>{if(s.index>0){s.index--;commit()}}));
-      if(!s.graded[q.id])actions.append(makeButton("정답 확인","primary",()=>gradeGeneral(q,s)));else actions.append(makeButton(s.index===s.ids.length-1?"학습 종료":"다음 문제","primary",()=>{if(s.index===s.ids.length-1){state.generalSession=null;currentView="home"}else s.index++;commit()}));app.append(actions);
+      const autoAdvance=q.type==="ox"||(q.type==="mc"&&q.answers.length===1);
+      if(!s.graded[q.id]&&!autoAdvance)actions.append(makeButton("정답 확인","primary",()=>gradeGeneral(q,s)));else if(!s.graded[q.id])actions.append(el("span","muted","선택 시 다음 문제"));else actions.append(makeButton(s.index===s.ids.length-1?"학습 종료":"다음 문제","primary",()=>{if(s.index===s.ids.length-1){state.generalSession=null;currentView="home"}else s.index++;commit()}));app.append(actions);
     }
     function gradeGeneral(q,s){const a=s.answers[q.id];if(!isAnswered(q,a)){alert("답안을 선택하거나 입력하세요.");return}const ok=isCorrect(q,a);s.graded[q.id]={correct:ok};recordAttempt(q,a,ok);commit()}
+    function selectAndAdvance(q,session,opts,answer){
+      session.answers[q.id]=answer;
+      if(opts.mode==="study"){const ok=isCorrect(q,answer);session.graded[q.id]={correct:ok};recordAttempt(q,answer,ok);if(session.index===session.ids.length-1){state.generalSession=null;currentView="home"}else session.index++;commit();return}
+      if(opts.mode==="exam"&&session.index<session.ids.length-1)session.index++;
+      commit();
+    }
 
     function ensureOrder(session,q){if(q.type!=="mc")return[];session.orders[q.id]??=shuffle([0,1,2,3]);return session.orders[q.id]}
     function renderQuestion(q,session,opts){
@@ -217,9 +224,9 @@
       const area=el("div","choices");const answer=session.answers[q.id];const locked=!!opts.graded;
       if(q.type==="mc"){
         const order=ensureOrder(session,q),multi=q.answers.length>1;
-        order.forEach((canonical,display)=>{const selected=Array.isArray(answer)&&answer.includes(canonical),btn=el("button",`choice ${selected?"selected":""}`);btn.type="button";btn.disabled=locked;btn.append(el("span","choice-index",String(display+1)));const content=el("span");if(q.diagrams){const d=q.diagrams[canonical],dw=el("span","diagram-wrap"),diagram=el("span","diagram");diagram.append(el("span","tl",d.topLeft),el("span","br",d.bottomRight));dw.append(diagram,el("span","diagram-caption",d.caption));content.append(dw)}else content.textContent=q.choices[canonical];btn.append(content);btn.onclick=()=>{let list=Array.isArray(session.answers[q.id])?[...session.answers[q.id]]:[];if(multi){list=list.includes(canonical)?list.filter(x=>x!==canonical):[...list,canonical]}else list=[canonical];session.answers[q.id]=list;commit()};area.append(btn)})
+        order.forEach((canonical,display)=>{const selected=Array.isArray(answer)&&answer.includes(canonical),btn=el("button",`choice ${selected?"selected":""}`);btn.type="button";btn.disabled=locked;btn.append(el("span","choice-index",String(display+1)));const content=el("span");if(q.diagrams){const d=q.diagrams[canonical],dw=el("span","diagram-wrap"),diagram=el("span","diagram");diagram.append(el("span","tl",d.topLeft),el("span","br",d.bottomRight));dw.append(diagram,el("span","diagram-caption",d.caption));content.append(dw)}else content.textContent=q.choices[canonical];btn.append(content);btn.onclick=()=>{let list=Array.isArray(session.answers[q.id])?[...session.answers[q.id]]:[];if(multi){list=list.includes(canonical)?list.filter(x=>x!==canonical):[...list,canonical];session.answers[q.id]=list;commit()}else selectAndAdvance(q,session,opts,[canonical])};area.append(btn)})
       }else if(q.type==="ox"){
-        ["O","X"].forEach(v=>{const btn=el("button",`choice ${answer===v?"selected":""}`);btn.type="button";btn.disabled=locked;btn.append(el("span","choice-index",v),el("span","",v==="O"?"맞다":"틀리다"));btn.onclick=()=>{session.answers[q.id]=v;commit()};area.append(btn)})
+        ["O","X"].forEach(v=>{const btn=el("button",`choice ${answer===v?"selected":""}`);btn.type="button";btn.disabled=locked;btn.append(el("span","choice-index",v),el("span","",v==="O"?"맞다":"틀리다"));btn.onclick=()=>selectAndAdvance(q,session,opts,v);area.append(btn)})
       }else{
         const values=Array.isArray(answer)?answer:Array(q.answers.length).fill("");for(let i=0;i<q.answers.length;i++){const f=el("div","field"),lab=el("label","",q.answers.length>1?`답안 ${i+1}`:"답안");const input=el("input");input.type="text";input.value=values[i]||"";input.disabled=locked;input.autocomplete="off";input.oninput=()=>{const next=Array.isArray(session.answers[q.id])?[...session.answers[q.id]]:Array(q.answers.length).fill("");next[i]=input.value;session.answers[q.id]=next;saveLocalOnly()};f.append(lab,input);area.append(f)}
       }
@@ -250,7 +257,7 @@
     function renderExamQuestion(app){
       const s=state.currentExam,q=QUESTION_MAP[s.ids[s.index]];app.append(renderQuestion(q,s,{mode:"exam",position:s.index+1,total:s.ids.length}));
       const answered=s.ids.filter(id=>isAnswered(QUESTION_MAP[id],s.answers[id])).length,pl=el("div","progress-label");pl.append(el("span","",`답변 ${answered}/${s.ids.length}`),el("span","",`${s.cycle}-${s.round}차`));const pr=el("div","progress"),f=el("span");f.style.width=`${pct(answered,s.ids.length)}%`;pr.append(f);app.prepend(pl,pr);
-      const actions=el("div","question-actions");actions.append(makeButton("이전","",()=>{if(s.index>0){s.index--;commit()}}));actions.append(makeButton(s.index===s.ids.length-1?"시험 제출":"다음","primary",()=>{if(s.index<s.ids.length-1){s.index++;commit()}else submitExam()}));app.append(actions);
+      const actions=el("div","question-actions"),autoAdvance=q.type==="ox"||(q.type==="mc"&&q.answers.length===1);actions.append(makeButton("이전","",()=>{if(s.index>0){s.index--;commit()}}));if(s.index===s.ids.length-1)actions.append(makeButton("시험 제출","primary",submitExam));else if(autoAdvance)actions.append(el("span","muted","선택 시 다음 문제"));else actions.append(makeButton("다음","primary",()=>{s.index++;commit()}));app.append(actions);
     }
     function submitExam(){
       const s=state.currentExam,missing=s.ids.filter(id=>!isAnswered(QUESTION_MAP[id],s.answers[id]));if(missing.length){alert(`답하지 않은 문제가 ${missing.length}개 있습니다.`);return}if(!confirm("시험을 제출하고 채점할까요?"))return;
