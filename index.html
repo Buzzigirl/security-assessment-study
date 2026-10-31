@@ -279,9 +279,10 @@
 
     function renderWrong(app){
       app.append(el("h2","","오답노트"));const qs=QUESTIONS.filter(q=>progressOf(q.id).wrong>0).sort((a,b)=>weakScore(b.id)-weakScore(a.id));if(!qs.length){app.append(el("div","card empty","아직 오답이 없습니다."));return}
-      const top=card();top.append(el("p","",`${qs.length}문항 · 여러 번 틀린 문제부터 표시합니다.`),makeButton("오답만 다시 풀기","primary block",()=>startGeneral({mode:"wrong",count:"all"})));app.append(top);
+      const top=card();top.append(el("p","",`${qs.length}문항 · 여러 번 틀린 문제부터 표시합니다.`),makeButton("오답만 다시 풀기","primary block",()=>startGeneral({mode:"wrong",count:"all"})),makeButton("오답노트 초기화","danger block",resetWrongNotes));app.append(top);
       const list=el("div","list section-gap");qs.forEach(q=>{const p=progressOf(q.id),item=el("details","list-item"),sum=el("summary","",`${typeName(q.type)} ${q.number}번 · 오답 ${p.wrong}회`),body=el("div");body.append(el("p","",q.prompt),el("div","answer-box",`정답: ${answerText(q)}`));if(q.note)body.append(el("div","note-box",q.note));item.append(sum,body);list.append(item)});app.append(list);
     }
+    function resetWrongNotes(){if(!confirm("오답노트를 초기화할까요? 정답 기록과 학습 횟수는 유지됩니다."))return;for(const p of Object.values(state.progress)){p.wrong=0;p.lastWrongAt=0;if(p.lastResult===false)p.lastResult=null}state.cycle.wrongIds=[];commit()}
 
     function startMemory(){let pool=weighted(QUESTIONS.filter(q=>weakScore(q.id)>0));if(!pool.length)pool=shuffle(QUESTIONS);state.memorySession={ids:pool.slice(0,30).map(q=>q.id),index:0,revealed:false};currentView="more";commit()}
     function renderMemory(app){const s=state.memorySession,q=QUESTION_MAP[s.ids[s.index]],c=card();c.append(el("div","muted",`${s.index+1}/${s.ids.length} · ${typeName(q.type)} ${q.number}번`),el("div","question-text",q.prompt));if(s.revealed)c.append(el("div","answer-box",`정답: ${answerText(q)}`));else c.append(makeButton("정답 보기","primary block",()=>{s.revealed=true;commit()}));if(s.revealed){const buttons=el("div","grid actions section-gap");[["알고 있음","known"],["헷갈림","confused"],["모름","unknown"]].forEach(([label,level])=>buttons.append(makeButton(label,"",()=>{state.memory[q.id]={level,updatedAt:Date.now()};if(s.index===s.ids.length-1)state.memorySession=null;else{s.index++;s.revealed=false}commit()})));c.append(buttons)}app.append(el("h2","","암기 모드"),c)}
