@@ -191,11 +191,9 @@
 
     function renderStudy(app){
       if(state.generalSession){renderGeneralSession(app);return}
-      app.append(el("h2","","문제·정답 학습"));const tabs=el("div","question-actions");
-      [["ox","OX 85문항"],["short","단답형 65문항"],["mc","객관식 155문항"]].forEach(([type,label])=>tabs.append(makeButton(label,studyUi.type===type?"primary":"soft",()=>{studyUi={type,page:1};renderAll()})));app.append(tabs);
-      const all=QUESTIONS.filter(q=>q.type===studyUi.type),pageSize=studyUi.type==="mc"?50:all.length,totalPages=Math.ceil(all.length/pageSize),start=(studyUi.page-1)*pageSize,list=all.slice(start,start+pageSize),wrap=el("div","list section-gap");
-      list.forEach(q=>{const item=el("section","list-item"),title=el("b","",`${q.afccs?"AFCCS ":""}${typeName(q.type)} ${q.number}번`);item.append(title,el("p","",q.prompt));if(q.type==="mc"){const choices=el("ol");q.choices.forEach(choice=>choices.append(el("li","",choice)));item.append(choices)}const answer=q.type==="mc"?q.answers.map(i=>`${i+1}. ${q.choices[i]}`).join(" / "):answerText(q);item.append(el("div","answer-box",`정답: ${answer}`));wrap.append(item)});app.append(wrap);
-      if(totalPages>1){const pages=el("div","question-actions");for(let page=1;page<=totalPages;page++)pages.append(makeButton(String(page),studyUi.page===page?"primary":"soft",()=>{studyUi.page=page;window.scrollTo({top:0,behavior:"smooth"});renderAll()}));app.append(pages)}
+      app.append(el("h2","","문제 연습"),el("div","notice","유형을 선택하면 문제가 무작위로 출제됩니다. 맞으면 정답을 확인한 뒤 자동으로 넘어가고, 틀리면 정답 확인 후 다음 문제를 누르세요."));
+      const actions=el("div","grid actions section-gap");
+      [["ox","OX 연습","85문항"],["short","주관식 연습","65문항"],["mc","객관식 연습","155문항"]].forEach(([type,title,count])=>{const button=makeButton("","card action",()=>startGeneral({type,count:"all"}));button.append(el("b","",title),el("small","",count));actions.append(button)});app.append(actions);
     }
     function startGeneral(opts={}){
       let pool=QUESTIONS.filter(q=>(!opts.type||opts.type==="all"||q.type===opts.type)&&(!opts.category||opts.category==="all"||(opts.category==="afccs"?q.afccs:!q.afccs)));
@@ -206,14 +204,16 @@
     }
     function renderGeneralSession(app){
       const s=state.generalSession,q=QUESTION_MAP[s.ids[s.index]];app.append(renderQuestion(q,s,{mode:"study",position:s.index+1,total:s.ids.length,graded:s.graded[q.id]}));
-      const actions=el("div","question-actions");actions.append(makeButton("이전","",()=>{if(s.index>0){s.index--;commit()}}));
+      const actions=el("div","question-actions");if(!s.graded[q.id]?.correct)actions.append(makeButton("이전","",()=>{if(s.index>0){s.index--;commit()}}));
       const autoAdvance=q.type==="ox"||(q.type==="mc"&&q.answers.length===1);
-      if(!s.graded[q.id]&&!autoAdvance)actions.append(makeButton("정답 확인","primary",()=>gradeGeneral(q,s)));else if(!s.graded[q.id])actions.append(el("span","muted","선택 시 다음 문제"));else actions.append(makeButton(s.index===s.ids.length-1?"학습 종료":"다음 문제","primary",()=>{if(s.index===s.ids.length-1){state.generalSession=null;currentView="home"}else s.index++;commit()}));app.append(actions);
+      if(!s.graded[q.id]&&!autoAdvance)actions.append(makeButton("정답 확인","primary",()=>gradeGeneral(q,s)));else if(!s.graded[q.id])actions.append(el("span","muted","답을 선택하세요"));else if(s.graded[q.id].correct)actions.append(el("span","muted","정답 확인 후 자동으로 넘어갑니다"));else actions.append(makeButton(s.index===s.ids.length-1?"연습 종료":"다음 문제","primary",()=>advanceGeneral(s)));app.append(actions);
     }
-    function gradeGeneral(q,s){const a=s.answers[q.id];if(!isAnswered(q,a)){alert("답안을 선택하거나 입력하세요.");return}const ok=isCorrect(q,a);s.graded[q.id]={correct:ok};recordAttempt(q,a,ok);commit()}
+    function advanceGeneral(session){if(state.generalSession!==session)return;if(session.index===session.ids.length-1){state.generalSession=null;currentView="study"}else session.index++;commit()}
+    function finishCorrectAfterDelay(session){const index=session.index;setTimeout(()=>{if(session.index===index)advanceGeneral(session)},900)}
+    function gradeGeneral(q,s){const a=s.answers[q.id];if(!isAnswered(q,a)){alert("답안을 선택하거나 입력하세요.");return}const ok=isCorrect(q,a);s.graded[q.id]={correct:ok};recordAttempt(q,a,ok);commit();if(ok)finishCorrectAfterDelay(s)}
     function selectAndAdvance(q,session,opts,answer){
       session.answers[q.id]=answer;
-      if(opts.mode==="study"){const ok=isCorrect(q,answer);session.graded[q.id]={correct:ok};recordAttempt(q,answer,ok);if(session.index===session.ids.length-1){state.generalSession=null;currentView="home"}else session.index++;commit();return}
+      if(opts.mode==="study"){const ok=isCorrect(q,answer);session.graded[q.id]={correct:ok};recordAttempt(q,answer,ok);commit();if(ok)finishCorrectAfterDelay(session);return}
       if(opts.mode==="exam"&&session.index<session.ids.length-1)session.index++;
       commit();
     }
@@ -231,7 +231,7 @@
         const values=Array.isArray(answer)?answer:Array(q.answers.length).fill("");for(let i=0;i<q.answers.length;i++){const f=el("div","field"),lab=el("label","",q.answers.length>1?`답안 ${i+1}`:"답안");const input=el("input");input.type="text";input.value=values[i]||"";input.disabled=locked;input.autocomplete="off";input.oninput=()=>{const next=Array.isArray(session.answers[q.id])?[...session.answers[q.id]]:Array(q.answers.length).fill("");next[i]=input.value;session.answers[q.id]=next;saveLocalOnly()};f.append(lab,input);area.append(f)}
       }
       wrap.append(area);
-      if(opts.graded){const fb=el("div",`feedback ${opts.graded.correct?"ok":"no"}`,opts.graded.correct?"정답입니다.":`오답입니다. 정답: ${answerText(q)}`);wrap.append(fb)}
+      if(opts.graded){const fb=el("div",`feedback ${opts.graded.correct?"ok":"no"}`,`${opts.graded.correct?"정답입니다.":"오답입니다."} 정답: ${answerText(q)}`);wrap.append(fb)}
       return wrap;
     }
     function saveLocalOnly(){state.updatedAt=Date.now();localStorage.setItem(STORAGE_KEY,JSON.stringify(state));if(firebaseReady)commit(false)}
