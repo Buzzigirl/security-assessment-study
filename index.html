@@ -34,7 +34,7 @@
     .sync.online .sync-dot{background:#22C55E}.sync.offline .sync-dot,.sync.error .sync-dot{background:#EF4444}
     .icon-btn{border:0;border-radius:12px;background:rgba(255,255,255,.12);color:#fff;width:44px;padding:0;font-size:18px}
     main{max-width:1100px;margin:auto;padding:18px 14px 100px}
-    .bottom-nav{position:fixed;z-index:30;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--gray-line);display:grid;grid-template-columns:repeat(5,1fr);padding:7px max(8px,env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+    .bottom-nav{position:fixed;z-index:30;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--gray-line);display:grid;grid-template-columns:repeat(6,1fr);padding:7px max(8px,env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
     .nav-btn{border:0;background:transparent;color:var(--gray-text);font-size:11px;padding:5px 2px;min-height:52px;border-radius:10px}.nav-btn span{display:block;font-size:19px;line-height:21px}.nav-btn.active{color:var(--mint-dark);background:var(--mint-light);font-weight:700}
     h2{font-size:22px;margin:0 0 14px}h3{font-size:17px;margin:0 0 10px}p{line-height:1.65}
     .grid{display:grid;gap:12px}.grid.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.actions{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -75,6 +75,7 @@
     <button class="nav-btn" data-view="study"><span>▣</span>학습</button>
     <button class="nav-btn" data-view="exam"><span>✓</span>모의시험</button>
     <button class="nav-btn" data-view="wrong"><span>!</span>오답노트</button>
+    <button class="nav-btn" data-view="favorite"><span>★</span>별표</button>
     <button class="nav-btn" data-view="more"><span>•••</span>더보기</button>
   </nav>
   <script>
@@ -166,9 +167,9 @@
     const BANK_ERRORS=validateBank();
 
     function renderAll(){
-      setTheme();const app=document.getElementById("app");app.replaceChildren();
+      setTheme();document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===currentView));const app=document.getElementById("app");app.replaceChildren();
       if(BANK_ERRORS.length){const n=el("div","notice error");n.textContent=`문제은행 무결성 오류: ${BANK_ERRORS.join(", ")}`;app.append(n);return}
-      ({home:renderHome,study:renderStudy,exam:renderExam,wrong:renderWrong,more:renderMore,bank:renderBank,stats:renderStats,settings:renderSettings}[currentView]||renderHome)(app);
+      ({home:renderHome,study:renderStudy,exam:renderExam,wrong:renderWrong,favorite:renderFavorites,more:renderMore,bank:renderBank,stats:renderStats,settings:renderSettings}[currentView]||renderHome)(app);
     }
     function card(title){const c=el("section","card");if(title)c.append(el("h3","",title));return c}
     function statCard(label,value){const c=el("div","card stat");c.append(el("strong","",String(value)),el("small","",label));return c}
@@ -200,7 +201,7 @@
       if(opts.mode==="wrong")pool=pool.filter(q=>progressOf(q.id).wrong>0);if(opts.mode==="favorite")pool=pool.filter(q=>state.favorites[q.id]);
       pool=opts.mode==="weak"?weighted(pool):shuffle(pool);const count=opts.count==="all"?pool.length:Number(opts.count||20);pool=pool.slice(0,count);
       if(!pool.length){alert("조건에 맞는 문항이 없습니다.");return}
-      state.generalSession={ids:pool.map(q=>q.id),index:0,answers:{},orders:{},graded:{},startedAt:Date.now()};currentView="study";commit();
+      state.generalSession={ids:pool.map(q=>q.id),index:0,answers:{},orders:{},graded:{},returnView:currentView,startedAt:Date.now()};currentView="study";commit();
     }
     function renderGeneralSession(app){
       const s=state.generalSession,q=QUESTION_MAP[s.ids[s.index]];app.append(renderQuestion(q,s,{mode:"study",position:s.index+1,total:s.ids.length,graded:s.graded[q.id]}));
@@ -208,7 +209,7 @@
       const autoAdvance=q.type==="ox"||(q.type==="mc"&&q.answers.length===1);
       if(!s.graded[q.id]&&!autoAdvance)actions.append(makeButton("정답 확인","primary",()=>gradeGeneral(q,s)));else if(!s.graded[q.id])actions.append(el("span","muted","답을 선택하세요"));else if(s.graded[q.id].correct)actions.append(el("span","muted","정답 확인 후 자동으로 넘어갑니다"));else actions.append(makeButton(s.index===s.ids.length-1?"연습 종료":"다음 문제","primary",()=>advanceGeneral(s)));app.append(actions);
     }
-    function advanceGeneral(session){if(state.generalSession!==session)return;if(session.index===session.ids.length-1){state.generalSession=null;currentView="study"}else session.index++;commit()}
+    function advanceGeneral(session){if(state.generalSession!==session)return;if(session.index===session.ids.length-1){state.generalSession=null;currentView=session.returnView||"study"}else session.index++;commit()}
     function finishCorrectAfterDelay(session){const index=session.index;setTimeout(()=>{if(session.index===index)advanceGeneral(session)},900)}
     function gradeGeneral(q,s){const a=s.answers[q.id];if(!isAnswered(q,a)){alert("답안을 선택하거나 입력하세요.");return}const ok=isCorrect(q,a);s.graded[q.id]={correct:ok};recordAttempt(q,a,ok);commit();if(ok)finishCorrectAfterDelay(s)}
     function selectAndAdvance(q,session,opts,answer){
@@ -267,15 +268,28 @@
     function renderResult(app,r){
       app.append(el("h2","",`${r.label||`${r.cycle}-${r.round}차`} 결과`));const score=el("section","card result-score");score.append(el("strong","",`${r.score}점`),el("span","",`${r.correct}/${r.total}문항 정답`));app.append(score);
       const c=card("유형별 결과");for(const type of ["mc","ox","short"]){const x=r.byType[type]||{c:0,t:0},row=el("div","result-row");row.append(el("span","",typeName(type)),el("b","",`${x.c}/${x.t} (${pct(x.c,x.t)}%)`));c.append(row)}app.append(c);
-      const w=card(`틀린 문제 ${r.wrongIds.length}개`);if(!r.wrongIds.length)w.append(el("div","empty","모든 문제를 맞혔습니다."));else r.wrongIds.forEach(id=>{const q=QUESTION_MAP[id],item=el("details","list-item"),sum=el("summary","",`${typeName(q.type)} ${q.number}번 · ${q.prompt.slice(0,55)}${q.prompt.length>55?"…":""}`),body=el("div");body.append(el("div","answer-box",`정답: ${answerText(q)}`));item.append(sum,body);w.append(item)});app.append(w,makeButton("결과 닫기","primary block",()=>{state.lastResult=null;currentView="home";commit()}));
+      const w=card(`틀린 문제 ${r.wrongIds.length}개`);if(!r.wrongIds.length)w.append(el("div","empty","모든 문제를 맞혔습니다."));else r.wrongIds.forEach(id=>{const q=QUESTION_MAP[id],item=el("details","list-item"),sum=el("summary","",`${typeName(q.type)} ${q.number}번 · ${q.prompt.slice(0,55)}${q.prompt.length>55?"…":""}`),body=el("div");appendReviewContent(body,q);item.append(sum,body);w.append(item)});app.append(w,makeButton("결과 닫기","primary block",()=>{state.lastResult=null;currentView="home";commit()}));
+    }
+
+    function appendReviewContent(body,q,showNote=false){
+      body.append(el("p","",q.prompt));
+      if(q.type==="mc"){const choices=el("div","choices");q.choices.forEach((choice,i)=>{const row=el("div","choice");row.append(el("span","choice-index",String(i+1)));const content=el("span");if(q.diagrams){const d=q.diagrams[i],dw=el("span","diagram-wrap"),diagram=el("span","diagram");diagram.append(el("span","tl",d.topLeft),el("span","br",d.bottomRight));dw.append(diagram,el("span","diagram-caption",d.caption));content.append(dw)}else content.textContent=choice;row.append(content);choices.append(row)});body.append(choices)}
+      else if(q.type==="ox")body.append(el("div","muted","보기: O(맞다) / X(틀리다)"));
+      body.append(el("div","answer-box",`정답: ${answerText(q)}`));if(showNote&&q.note)body.append(el("div","note-box",q.note));
     }
 
     function renderWrong(app){
       app.append(el("h2","","오답노트"));const qs=QUESTIONS.filter(q=>progressOf(q.id).wrong>0).sort((a,b)=>weakScore(b.id)-weakScore(a.id));if(!qs.length){app.append(el("div","card empty","아직 오답이 없습니다."));return}
       const top=card();top.append(el("p","",`${qs.length}문항 · 여러 번 틀린 문제부터 표시합니다.`),makeButton("오답만 다시 풀기","primary block",()=>startGeneral({mode:"wrong",count:"all"})),makeButton("오답노트 초기화","danger block",resetWrongNotes));app.append(top);
-      const list=el("div","list section-gap");qs.forEach(q=>{const p=progressOf(q.id),item=el("details","list-item"),sum=el("summary","",`${typeName(q.type)} ${q.number}번 · 오답 ${p.wrong}회`),body=el("div");body.append(el("p","",q.prompt),el("div","answer-box",`정답: ${answerText(q)}`));if(q.note)body.append(el("div","note-box",q.note));item.append(sum,body);list.append(item)});app.append(list);
+      const list=el("div","list section-gap");qs.forEach(q=>{const p=progressOf(q.id),item=el("details","list-item"),sum=el("summary","",`${typeName(q.type)} ${q.number}번 · 오답 ${p.wrong}회`),body=el("div");appendReviewContent(body,q,true);item.append(sum,body);list.append(item)});app.append(list);
     }
     function resetWrongNotes(){if(!confirm("오답노트를 초기화할까요? 정답 기록과 학습 횟수는 유지됩니다."))return;for(const p of Object.values(state.progress)){p.wrong=0;p.lastWrongAt=0;if(p.lastResult===false)p.lastResult=null}state.cycle.wrongIds=[];commit()}
+
+    function renderFavorites(app){
+      app.append(el("h2","","별표 문제"));const qs=QUESTIONS.filter(q=>state.favorites[q.id]);if(!qs.length){app.append(el("div","card empty","별표 표시한 문제가 없습니다."));return}
+      const top=card();top.append(el("p","",`${qs.length}문항을 별표로 표시했습니다.`),makeButton("별표 문제 다시 풀기","primary block",()=>startGeneral({mode:"favorite",count:"all"})));app.append(top);
+      const list=el("div","list section-gap");qs.forEach(q=>{const item=el("details","list-item"),sum=el("summary","",`${q.afccs?"AFCCS ":""}${typeName(q.type)} ${q.number}번`),body=el("div");appendReviewContent(body,q);body.append(makeButton("별표 해제","soft block",()=>{delete state.favorites[q.id];commit()}));item.append(sum,body);list.append(item)});app.append(list);
+    }
 
     function startMemory(){let pool=weighted(QUESTIONS.filter(q=>weakScore(q.id)>0));if(!pool.length)pool=shuffle(QUESTIONS);state.memorySession={ids:pool.slice(0,30).map(q=>q.id),index:0,revealed:false};currentView="more";commit()}
     function renderMemory(app){const s=state.memorySession,q=QUESTION_MAP[s.ids[s.index]],c=card();c.append(el("div","muted",`${s.index+1}/${s.ids.length} · ${typeName(q.type)} ${q.number}번`),el("div","question-text",q.prompt));if(s.revealed)c.append(el("div","answer-box",`정답: ${answerText(q)}`));else c.append(makeButton("정답 보기","primary block",()=>{s.revealed=true;commit()}));if(s.revealed){const buttons=el("div","grid actions section-gap");[["알고 있음","known"],["헷갈림","confused"],["모름","unknown"]].forEach(([label,level])=>buttons.append(makeButton(label,"",()=>{state.memory[q.id]={level,updatedAt:Date.now()};if(s.index===s.ids.length-1)state.memorySession=null;else{s.index++;s.revealed=false}commit()})));c.append(buttons)}app.append(el("h2","","암기 모드"),c)}
